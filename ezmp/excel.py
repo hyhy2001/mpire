@@ -1,97 +1,6 @@
-from typing import Callable, Optional, Any, List
-from .core import run_ordered # type: ignore
-
-# Add __all__ for explicit exports
-__all__ = ["map_df", "map_csv", "map_excel", "map_excel_files", "map_excel_chunks"]
-
+from typing import Callable, Optional, Any, List, Iterator
+from .dataframe import map_df, _check_pandas, DataFrame, pd # type: ignore
 import typing
-try:
-    import pandas as pd # type: ignore
-    DataFrame = pd.DataFrame
-except ImportError:
-    pd = typing.cast(typing.Any, None)
-    DataFrame = typing.Any
-
-def _check_pandas():
-    if pd is None:
-        raise ImportError(
-            "Pandas is required for data helpers. Install ezmp with 'pip install ezmp[data]' "
-            "or 'pip install pandas'."
-        )
-
-def map_df(
-    target_func: Callable,
-    df: DataFrame,
-    use_threads: bool = False,
-    max_workers: Optional[int] = None,
-    desc: str = "Processing DataFrame rows"
-) -> DataFrame:
-    """
-    Applies a function to each row of a pandas DataFrame concurrently.
-    Because applying heavy transformations is usually CPU bound, defaults to ProcessPool.
-    Returns a new DataFrame with a new column 'ezmp_result' containing the return values.
-    """
-    _check_pandas()
-    
-    # We pass rows as dictionaries to the target function to make it easy to use
-    rows_as_dicts = df.to_dict('records')
-    
-    # Run concurrently (ordered so we can just append it back as a column)
-    results = run_ordered(
-        target_func=target_func,
-        items=rows_as_dicts,
-        use_threads=use_threads,
-        max_workers=max_workers,
-        desc=desc
-    )
-    
-    # Return a copy of the dataframe with the results appended
-    result_df = df.copy()
-    result_df['ezmp_result'] = results # type: ignore
-    return result_df
-
-def map_csv(
-    target_func: Callable,
-    file_path: str,
-    output_path: Optional[str] = None,
-    use_threads: bool = False,
-    max_workers: Optional[int] = None,
-    desc: str = "Processing CSV rows",
-    chunksize: Optional[int] = None,
-    **read_csv_kwargs
-) -> DataFrame:
-    """
-    Reads a CSV, processes its rows concurrently, and optionally saves the result.
-    If `chunksize` is provided, it returns a generator that yields processed chunk DataFrames.
-    This allows massive CSV processing without hitting RAM limits.
-    """
-    _check_pandas()
-    
-    if chunksize is not None:
-        def chunk_generator():
-            for i, chunk in enumerate(pd.read_csv(file_path, chunksize=chunksize, **read_csv_kwargs)):
-                yield map_df(
-                    target_func=target_func, 
-                    df=chunk, 
-                    use_threads=use_threads, 
-                    max_workers=max_workers, 
-                    desc=f"{desc} (chunk {i+1})"
-                )
-        return chunk_generator()
-    else:    
-        df = pd.read_csv(file_path, **read_csv_kwargs)
-        result_df = map_df(
-            target_func=target_func, 
-            df=df, 
-            use_threads=use_threads, 
-            max_workers=max_workers, 
-            desc=desc
-        )
-        
-        if output_path is not None:
-            result_df.to_csv(output_path, index=False)
-            
-        return result_df
 
 def map_excel(
     target_func: Callable,
@@ -131,7 +40,7 @@ def map_excel_chunks(
     use_threads: bool = False,
     max_workers: Optional[int] = None,
     desc: str = "Processing Excel chunks"
-) -> typing.Iterator[DataFrame]:
+) -> Iterator[DataFrame]:
     """
     Reads an Excel file lazily in chunks, to prevent Out-Of-Memory (OOM) crashes
     on massive SoC matrices (e.g., millions of cells).
@@ -213,31 +122,21 @@ def map_excel_files(
     Returns:
         A list of results from `target_func`.
     """
-    from glob import glob
-    import os
+    from . import files # type: ignore
     import functools
     
-    # Define search pattern
-    pattern = "**/*.xls*" if recursive else "*.xls*"
-    search_path = os.path.join(directory, pattern)
-    
-    # Find all excel files
-    files = glob(search_path, recursive=recursive)
-    
-    if not files:
-        return []
-
     wrapper = functools.partial(
         _process_single_excel, 
         target_func=target_func, 
         read_kwargs=read_excel_kwargs
     )
 
-    # Use ezmp core to run concurrently over the files
-    from .core import run # type: ignore
-    return run(
+    # Use files.map_dir to prevent glob logic duplication
+    return files.map_dir(
         target_func=wrapper,
-        items=files,
+        dir_path=directory,
+        pattern="*.xls*" if not recursive else "**/*.xls*",
+        recursive=recursive,
         use_threads=use_threads,
         max_workers=max_workers,
         desc=desc

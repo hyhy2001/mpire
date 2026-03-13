@@ -131,9 +131,13 @@ for processed_chunk_df in generator:
 - `map_dir(func, directory, pattern, ...)`
 - `write_stream(results_generator, output_path, transform=None)`: Safely writes generated items to a file sequentially.
 
-### `ezmp.data`
+### `ezmp.dataframe`
 - `map_df(func, df)`: Process a DataFrame row-by-row concurrently.
+
+### `ezmp.csv`
 - `map_csv(func, file_path, chunksize=None)`: Specify `chunksize` to return a Generator for low-RAM streaming.
+
+### `ezmp.excel`
 - `map_excel(...)`: Read & process single Excel file (High RAM usage).
 - `map_excel_files(func, directory)`: Process all excel files concurrently.
 - `map_excel_chunks(func, file_path, chunksize=1000)`: Read a massive Excel file lazily and process chunk-by-chunk (Low RAM footprint).

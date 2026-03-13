@@ -100,11 +100,10 @@ def test_data_map_excel_files(tmp_path):
     
     file1 = tmp_path / "data1.xlsx"
     file2 = tmp_path / "data2.xlsx"
-    
     df1.to_excel(str(file1), index=False)
     df2.to_excel(str(file2), index=False)
         
-    res = ezmp.data.map_excel_files(sum_col_a, str(tmp_path))
+    res = ezmp.excel.map_excel_files(sum_col_a, str(tmp_path))
     
     # Ordered is not guaranteed, but we can check the set
     assert set(res) == {3, 30}
@@ -121,7 +120,7 @@ def test_data_map_csv_chunks(tmp_path):
     df.to_csv(str(csv_file), index=False)
     
     # Read in chunks of 5
-    chunks_gen = ezmp.data.map_csv(process_chunk, str(csv_file), chunksize=5)
+    chunks_gen = ezmp.csv.map_csv(process_chunk, str(csv_file), chunksize=5)
     
     # We should get a generator, not a dataframe directly
     import types
@@ -156,7 +155,7 @@ def test_data_map_excel_chunks(tmp_path):
     
     import types
     # Read in chunks of 2 rows
-    chunks_gen = ezmp.data.map_excel_chunks(count_true, str(excel_file), chunksize=2)
+    chunks_gen = ezmp.excel.map_excel_chunks(count_true, str(excel_file), chunksize=2)
     assert isinstance(chunks_gen, types.GeneratorType)
     
     res = list(chunks_gen)
