@@ -1,4 +1,4 @@
-from typing import Callable, Optional
+from typing import Callable, Optional, Any
 from .dataframe import map_df, _check_pandas, DataFrame, pd  # type: ignore
 
 
@@ -10,6 +10,8 @@ def map_csv(
     max_workers: Optional[int] = None,
     desc: str = "Processing CSV rows",
     chunksize: Optional[int] = None,
+    memoize: bool = False,
+    shared_state: Optional[Any] = None,
     **read_csv_kwargs,
 ) -> DataFrame:
     """
@@ -31,6 +33,8 @@ def map_csv(
                     use_threads=use_threads,
                     max_workers=max_workers,
                     desc=f"{desc} (chunk {i + 1})",
+                    memoize=memoize,
+                    shared_state=shared_state,
                 )
 
         return chunk_generator()
@@ -42,6 +46,8 @@ def map_csv(
             use_threads=use_threads,
             max_workers=max_workers,
             desc=desc,
+            memoize=memoize,
+            shared_state=shared_state,
         )
 
         if output_path is not None:

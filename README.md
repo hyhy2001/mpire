@@ -290,9 +290,43 @@ for clean_df in computed_chunks:
     print(clean_df.head())
 ```
 
+### 8. 🧠 Auto-Memoization & Multiprocess Shared State
+When parsing 10 million rows, you often hit duplicated items, or you need to tally errors globally without corrupting counts across threads.
+By passing `memoize=True`, `ezmp` internally spins up an Inter-Process Communication (IPC) dictionary. Duplicate rows skip execution natively in `O(1)` time.
+By passing `shared_state=manager.dict()`, you inject a globally shared object accessible instantly from any worker core.
+
+```python
+import ezmp
+import multiprocessing
+import hashlib
+
+def crunch_massive_data(row, shared_state=None):
+    # Safely aggregate cross-process states WITHOUT race conditions
+    if "ERROR" in str(row) and shared_state is not None:
+        shared_state["errors"] = shared_state.get("errors", 0) + 1
+        
+    # Massive CPU bottleneck
+    return hashlib.sha256(str(row).encode()).hexdigest()
+
+# Spin up a global Multiprocessing tracker
+manager = multiprocessing.Manager()
+global_tracker = manager.dict({'errors': 0})
+
+results = ezmp.dataframe.map_df(
+    crunch_massive_data,
+    df=massive_pandas_df,
+    use_threads=False,    
+    max_workers=24,       
+    memoize=True,         # ✨ Magic 1: Skips execution if the target row is identical to a previous one!
+    shared_state=global_tracker  # ✨ Magic 2: Aggregates global error tallies synchronously!
+)
+
+print(f"Total distributed errors caught: {global_tracker['errors']}")
+```
+
 ---
 
-## 🛠️ API Reference
+## 4. Full API Reference
 
 ### `ezmp.core`
 - `run(func, items, use_threads=False, max_workers=None)`: Core map. CPU bound by default.

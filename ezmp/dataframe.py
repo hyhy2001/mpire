@@ -25,6 +25,8 @@ def map_df(
     use_threads: bool = False,
     max_workers: Optional[int] = None,
     desc: str = "Processing DataFrame rows",
+    memoize: bool = False,
+    shared_state: Optional[typing.Any] = None,
 ) -> DataFrame:
     """
     Applies a function to each row of a pandas DataFrame concurrently.
@@ -43,6 +45,8 @@ def map_df(
         use_threads=use_threads,
         max_workers=max_workers,
         desc=desc,
+        memoize=memoize,
+        shared_state=shared_state,
     )
 
     # Return a copy of the dataframe with the results appended

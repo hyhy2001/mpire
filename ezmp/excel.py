@@ -2,63 +2,58 @@ from typing import Callable, Optional, Any, List, Iterator
 from .dataframe import map_df, _check_pandas, DataFrame, pd  # type: ignore
 
 
-def _create_ref_getter(filepath: str, cache: Any):
+class _EvalWrapper:
     """
-    Creates a callable that fetches references natively for a specific subprocess.
-    """
-    import openpyxl  # type: ignore
-
-    def ref_getter(ref_str: str):
-        hit = cache.get(ref_str) if cache else None
-        if hit is not None:
-            return hit
-
-        wb = openpyxl.load_workbook(filepath, read_only=True, data_only=False)
-        sheet_name = wb.active.title
-        cell_ref = ref_str
-        if "!" in ref_str:
-            sheet_name, cell_ref = ref_str.split("!")
-
-        try:
-            sheet = wb[sheet_name]
-            if ":" in cell_ref:
-                cells = sheet[cell_ref]
-                if (
-                    isinstance(cells, tuple)
-                    and len(cells) > 0
-                    and isinstance(cells[0], tuple)
-                ):
-                    val = [[c.value for c in r] for r in cells]
-                elif isinstance(cells, tuple):
-                    val = [c.value for c in cells]
-                else:
-                    val = cells.value
-            else:
-                val = sheet[cell_ref].value
-        except Exception:
-            val = None
-        finally:
-            wb.close()
-
-        if cache:
-            cache.set(ref_str, val)
-        return val
-
-    return ref_getter
-
-
-def _make_eval_wrapper(user_func: Callable, filepath: str, cache: Any):
-    """
-    Wraps the user's DataFrame `.apply` target function, dynamically evaluating formulas
-    on the row PRIOR to passing the row to the user function.
+    Wraps the user's target function to dynamically evaluate formulas natively.
+    Implemented as a picklable Callable class for spawn-based ProcessPool scaling.
     """
 
-    def wrapper(row):
+    def __init__(self, user_func: Callable, filepath: str, cache_dict: Any):
+        self.user_func = user_func
+        self.filepath = filepath
+        self.cache_dict = cache_dict
+
+    def __call__(self, row):
         from ezmp.formula import evaluate_formula_string
         from ezmp.formula.errors import ExcelError
+        import openpyxl  # type: ignore
 
-        # Instantiate ref_getter inside the subprocess
-        ref_getter = _create_ref_getter(filepath, cache)
+        # Instantiate ref_getter inside the subprocess to lazily fetch workbooks per core
+        def ref_getter(ref_str: str):
+            hit = self.cache_dict.get(ref_str) if self.cache_dict is not None else None
+            if hit is not None:
+                return hit
+
+            wb = openpyxl.load_workbook(self.filepath, read_only=True, data_only=False)
+            sheet_name = wb.active.title
+            cell_ref = ref_str
+            if "!" in ref_str:
+                sheet_name, cell_ref = ref_str.split("!")
+
+            try:
+                sheet = wb[sheet_name]
+                if ":" in cell_ref:
+                    cells = sheet[cell_ref]
+                    if (
+                        isinstance(cells, tuple)
+                        and len(cells) > 0
+                        and isinstance(cells[0], tuple)
+                    ):
+                        val = [[c.value for c in r] for r in cells]
+                    elif isinstance(cells, tuple):
+                        val = [c.value for c in cells]
+                    else:
+                        val = cells.value
+                else:
+                    val = sheet[cell_ref].value
+            except Exception:
+                val = None
+            finally:
+                wb.close()
+
+            if self.cache_dict is not None:
+                self.cache_dict[ref_str] = val
+            return val
 
         for col in row.index:
             val = row[col]
@@ -68,9 +63,15 @@ def _make_eval_wrapper(user_func: Callable, filepath: str, cache: Any):
                     res = res.code
                 row[col] = res
 
-        return user_func(row)
+        return self.user_func(row)
 
-    return wrapper
+
+def _make_eval_wrapper(user_func: Callable, filepath: str, cache: Any):
+    """
+    Exposes an _EvalWrapper Callable natively picklable across OS pools.
+    """
+    cache_dict = cache._cache if cache and hasattr(cache, "_cache") else cache
+    return _EvalWrapper(user_func, filepath, cache_dict)
 
 
 def map_excel(
@@ -80,6 +81,8 @@ def map_excel(
     use_threads: bool = False,
     max_workers: Optional[int] = None,
     desc: str = "Processing Excel rows",
+    memoize: bool = False,
+    shared_state: Optional[Any] = None,
 ) -> DataFrame:
     """
     Reads an Excel file, processes its rows concurrently, and optionally saves the result.
@@ -93,6 +96,8 @@ def map_excel(
         use_threads=use_threads,
         max_workers=max_workers,
         desc=desc,
+        memoize=memoize,
+        shared_state=shared_state,
     )
 
     if output_path is not None:
@@ -114,6 +119,8 @@ def map_excel_chunks(
     max_workers: Optional[int] = None,
     desc: str = "Processing Excel chunks",
     evaluate_formulas: bool = False,
+    memoize: bool = False,
+    shared_state: Optional[Any] = None,
 ) -> Iterator[DataFrame]:
     """
     Reads an Excel file lazily in chunks, to prevent Out-Of-Memory (OOM) crashes
@@ -167,6 +174,8 @@ def map_excel_chunks(
                     use_threads=use_threads,
                     max_workers=max_workers,
                     desc=f"{desc} (chunk {chunk_index})",
+                    memoize=memoize,
+                    shared_state=shared_state,
                 )
                 yield processed_df
 
@@ -182,6 +191,8 @@ def map_excel_chunks(
                 use_threads=use_threads,
                 max_workers=max_workers,
                 desc=f"{desc} (chunk {chunk_index})",
+                memoize=memoize,
+                shared_state=shared_state,
             )
 
         wb.close()
@@ -196,6 +207,8 @@ def map_excel_files(
     use_threads: bool = False,
     max_workers: Optional[int] = None,
     desc: str = "Scraping Excel files",
+    memoize: bool = False,
+    shared_state: Optional[Any] = None,
     **read_excel_kwargs,
 ) -> List[Any]:
     """
@@ -230,4 +243,6 @@ def map_excel_files(
         use_threads=use_threads,
         max_workers=max_workers,
         desc=desc,
+        memoize=memoize,
+        shared_state=shared_state,
     )

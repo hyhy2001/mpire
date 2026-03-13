@@ -20,12 +20,90 @@ def _is_in_worker(use_threads: bool) -> bool:
     return False
 
 
+class _CoreWrapper:
+    """
+    Wraps the user's target function to seamlessly inject `shared_state`
+    and perform O(1) cache lookups if `memoize=True`.
+    Implemented as a class so it remains picklable for Windows/spawn Multiprocessing.
+    """
+
+    def __init__(
+        self,
+        target_func: Callable,
+        memoize: bool,
+        cache_dict: Any,
+        shared_state: Optional[Any],
+        is_multi: bool = False,
+    ):
+        self.target_func = target_func
+        self.memoize = memoize
+        self.cache_dict = cache_dict
+        self.shared_state = shared_state
+        self.is_multi = is_multi
+
+    def __call__(self, item):
+        hash_key = None
+        if self.memoize and self.cache_dict is not None:
+            try:
+                # Try strict hashing first (for tuples, strings, ints)
+                hash_key = hash(item)
+            except TypeError:
+                # Fallback to string hashing for dicts/lists
+                hash_key = hash(str(item))
+
+            cached_val = self.cache_dict.get(hash_key)
+            if cached_val is not None:
+                return cached_val
+
+        # Execute User Function
+        try:
+            if self.is_multi:
+                # item is a tuple of args
+                if self.shared_state is not None:
+                    res = self.target_func(*item, shared_state=self.shared_state)
+                else:
+                    res = self.target_func(*item)
+            else:
+                if self.shared_state is not None:
+                    res = self.target_func(item, shared_state=self.shared_state)
+                else:
+                    res = self.target_func(item)
+        except Exception as e:
+            raise e
+
+        # Save to Cache
+        if self.memoize and self.cache_dict is not None and hash_key is not None:
+            self.cache_dict[hash_key] = res
+
+        return res
+
+
+def _make_core_wrapper(
+    target_func: Callable,
+    memoize: bool,
+    cache: Any,
+    shared_state: Optional[Any],
+    is_multi: bool = False,
+):
+    """
+    Wraps the user's target function to seamlessly inject `shared_state`
+    and perform O(1) cache lookups if `memoize=True`.
+    """
+    if not memoize and shared_state is None:
+        return target_func
+
+    cache_dict = cache._cache if cache and hasattr(cache, "_cache") else cache
+    return _CoreWrapper(target_func, memoize, cache_dict, shared_state, is_multi)
+
+
 def run(
     target_func: Callable,
     items: Iterable,
     use_threads: bool = False,
     max_workers: Optional[int] = None,
     desc: str = "Processing",
+    memoize: bool = False,
+    shared_state: Optional[Any] = None,
 ) -> List[Any]:
     """
     The core engine to easily run a function over an iterable of items.
@@ -72,12 +150,22 @@ def run(
     # Choose Executor
     Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
 
+    global_cache = None
+    if memoize:
+        from ezmp.cache import GlobalCache
+
+        global_cache = GlobalCache(enabled=True)
+
+    actual_target = _make_core_wrapper(
+        target_func, memoize, global_cache, shared_state, is_multi=False
+    )
+
     results = []
     # Using the executor context manager
     with Executor(max_workers=max_workers) as executor:
         # Submit all tasks
         # We store future -> item mapping to know which item failed
-        future_to_item = {executor.submit(target_func, item): item for item in items}
+        future_to_item = {executor.submit(actual_target, item): item for item in items}
         # as_completed yields futures as they finish (regardless of submission order)
         for future in as_completed(future_to_item):
             item = future_to_item[future]
@@ -100,6 +188,8 @@ def run_stream(
     use_threads: bool = False,
     max_workers: Optional[int] = None,
     desc: str = "Processing stream",
+    memoize: bool = False,
+    shared_state: Optional[Any] = None,
 ) -> Iterator[Any]:
     """
     Lazy evaluation version of `run`. Yields results as they complete.
@@ -128,8 +218,18 @@ def run_stream(
 
     Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
 
+    global_cache = None
+    if memoize:
+        from ezmp.cache import GlobalCache
+
+        global_cache = GlobalCache(enabled=True)
+
+    actual_target = _make_core_wrapper(
+        target_func, memoize, global_cache, shared_state, is_multi=False
+    )
+
     with Executor(max_workers=max_workers) as executor:
-        future_to_item = {executor.submit(target_func, item): item for item in items}
+        future_to_item = {executor.submit(actual_target, item): item for item in items}
         for future in as_completed(future_to_item):
             item = future_to_item[future]
             try:
@@ -144,6 +244,8 @@ def run_ordered(
     use_threads: bool = False,
     max_workers: Optional[int] = None,
     desc: str = "Processing",
+    memoize: bool = False,
+    shared_state: Optional[Any] = None,
 ) -> List[Any]:
     """
     Like `run()`, but guarantees the returning list is in the exact same
@@ -180,13 +282,23 @@ def run_ordered(
 
     Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
 
+    global_cache = None
+    if memoize:
+        from ezmp.cache import GlobalCache
+
+        global_cache = GlobalCache(enabled=True)
+
+    actual_target = _make_core_wrapper(
+        target_func, memoize, global_cache, shared_state, is_multi=False
+    )
+
     # Pre-allocate results array to keep order
     results = [None] * total_items
 
     with Executor(max_workers=max_workers) as executor:
         # Submit storing the index
         future_to_index = {
-            executor.submit(target_func, item): idx
+            executor.submit(actual_target, item): idx
             for idx, item in enumerate(items_list)
         }
         for future in as_completed(future_to_index):
@@ -212,16 +324,20 @@ def run_multi(
     use_threads: bool = False,
     max_workers: Optional[int] = None,
     desc: str = "Processing multi-args",
+    memoize: bool = False,
+    shared_state: Optional[Any] = None,
 ) -> List[Any]:
     import functools
 
     wrapper = functools.partial(_unpack_and_call, target_func=target_func)
     return run(
-        target_func=wrapper,  # type: ignore
+        target_func=target_func,  # type: ignore
         items=items,
         use_threads=use_threads,
         max_workers=max_workers,
         desc=desc,
+        memoize=memoize,
+        shared_state=shared_state,
     )
 
 
@@ -231,14 +347,18 @@ def run_multi_ordered(
     use_threads: bool = False,
     max_workers: Optional[int] = None,
     desc: str = "Processing multi-args",
+    memoize: bool = False,
+    shared_state: Optional[Any] = None,
 ) -> List[Any]:
     import functools
 
     wrapper = functools.partial(_unpack_and_call, target_func=target_func)
     return run_ordered(
-        target_func=wrapper,  # type: ignore
+        target_func=target_func,  # type: ignore
         items=items,
         use_threads=use_threads,
         max_workers=max_workers,
         desc=desc,
+        memoize=memoize,
+        shared_state=shared_state,
     )

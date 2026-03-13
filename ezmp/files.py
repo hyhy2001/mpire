@@ -11,6 +11,8 @@ def map_files(
     use_threads: bool = True,  # Default to threads for I/O
     max_workers: Optional[int] = None,
     desc: str = "Processing files",
+    memoize: bool = False,
+    shared_state: Optional[Any] = None,
 ) -> List[Any]:
     """
     Applies a function to a list of files concurrently.
@@ -23,6 +25,8 @@ def map_files(
         use_threads=use_threads,
         max_workers=max_workers,
         desc=desc,
+        memoize=memoize,
+        shared_state=shared_state,
     )
 
 
@@ -35,6 +39,8 @@ def map_dir(
     use_threads: bool = True,
     max_workers: Optional[int] = None,
     desc: str = "Processing directory files",
+    memoize: bool = False,
+    shared_state: Optional[Any] = None,
 ) -> List[Any]:
     """
     Applies a function to all files matching a pattern in a directory.
@@ -63,6 +69,8 @@ def map_dir(
         use_threads=use_threads,
         max_workers=max_workers,
         desc=desc,
+        memoize=memoize,
+        shared_state=shared_state,
     )
 
 
