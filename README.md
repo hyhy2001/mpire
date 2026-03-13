@@ -143,8 +143,9 @@ ezmp.run(process_folder, folders)
 ## 🛠️ API Reference
 
 ### `ezmp.core`
-- `run(func, items, use_threads=False)`: Main execution engine.
-- `run_ordered(...)`: Slower, but guarantees the output list order matches the input list.
+- `run(func, items, use_threads=False, max_workers=None)`: Core map. CPU bound by default.
+- `run_ordered(...)`: Same as `run`, but guarantees order.
+- `run_stream(func, items, ...)`: Returns a lazy-evaluated Generator. Yields results one-by-one as they complete. Ideal for saving RAM.
 - `run_multi(func, items_tuples)`: Accepts an iterable of tuples and unpacks them `func(*item)`.
 - `run_multi_ordered(...)`: Same as multi, but strict order.
 

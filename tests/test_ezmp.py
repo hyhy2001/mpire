@@ -214,3 +214,18 @@ def test_nested_execution():
     
     assert res == [[10, 20], [30, 40], [50, 60]]
 
+def test_core_run_stream():
+    items = [1, 2, 3, 4, 5]
+    
+    # Run the stream generator
+    stream_gen = ezmp.run_stream(square, items)
+    
+    import types
+    assert isinstance(stream_gen, types.GeneratorType)
+    
+    # Collect items from the generator
+    res = list(stream_gen)
+    
+    # Order is not guaranteed, but standard mapping should be
+    assert set(res) == {1, 4, 9, 16, 25}
+

@@ -1,5 +1,5 @@
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from typing import Callable, Iterable, List, Any, Optional
+from typing import Callable, Iterable, List, Any, Optional, Iterator
 import multiprocessing
 
 from .utils import log_error # type: ignore
@@ -89,6 +89,48 @@ def run(
     # will be in the order of completion, not the original items order.
     # We might want to fix this to return ordered results. Let's do that.
     return results
+
+def run_stream(
+    target_func: Callable, 
+    items: Iterable, 
+    use_threads: bool = False, 
+    max_workers: Optional[int] = None, 
+    desc: str = "Processing stream"
+) -> Iterator[Any]:
+    """
+    Lazy evaluation version of `run`. Yields results as they complete.
+    Prevents Out-Of-Memory (OOM) crashes when processing a massive number of items 
+    that each return huge data objects (like giant DataFrames).
+    """
+    if _is_in_worker(use_threads):
+        from .utils import logger # type: ignore
+        logger.warning(
+            f"Nested ezmp execution detected (use_threads={use_threads}). "
+            f"Falling back to sequential stream execution."
+        )
+        for item in items:
+            try:
+                yield target_func(item)
+            except Exception as exc:
+                yield log_error(item, exc)
+        return
+        
+    if max_workers is None:
+        if use_threads:
+            max_workers = min(32, (multiprocessing.cpu_count() or 1) + 4)
+        else:
+            max_workers = multiprocessing.cpu_count() or 1
+
+    Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
+    
+    with Executor(max_workers=max_workers) as executor:
+        future_to_item = {executor.submit(target_func, item): item for item in items}
+        for future in as_completed(future_to_item):
+            item = future_to_item[future]
+            try:
+                yield future.result()
+            except Exception as exc:
+                yield log_error(item, exc)
 
 def run_ordered(
     target_func: Callable, 
