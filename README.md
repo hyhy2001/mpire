@@ -1,8 +1,7 @@
 # Easy Multiprocessing (ezmp)
 
 `ezmp` is a beginner-friendly Python package that makes concurrent execution (multiprocessing and multithreading) incredibly simple. It removes the boilerplate associated with `concurrent.futures`, and adds safe error handling so that a single failing item doesn't crash your entire script.
-
-**Recently updated for EDA workflows:** Effortlessly parse gigabyte-sized Static Timing Analysis (STA) reports and stream massive SoC boolean matrices without crashing your system's RAM.
+**Recently updated for Massive Data Processing:** Effortlessly parse gigabyte-sized server logs and stream multi-million cell boolean matrices without crashing your system's RAM.
 
 ---
 

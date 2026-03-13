@@ -50,7 +50,7 @@ def test_logs_chunk_reading(tmp_path):
 
 import typing
 
-def dummy_sta_extractor(chunk: typing.List[str], state: typing.Dict[str, typing.Any]) -> typing.Generator[typing.Dict[str, typing.Any], None, None]:
+def dummy_log_extractor(chunk: typing.List[str], state: typing.Dict[str, typing.Any]) -> typing.Generator[typing.Dict[str, typing.Any], None, None]:
     if not state:
         state.update({'in_path': False, 'current_start': None})
         
@@ -65,7 +65,7 @@ def dummy_sta_extractor(chunk: typing.List[str], state: typing.Dict[str, typing.
             state['current_start'] = None
 
 def test_logs_parse_blocks(tmp_path):
-    log_file = tmp_path / "sta_log.rpt"
+    log_file = tmp_path / "server_log.txt"
     log_data = """
 Startpoint: reg_A
 some random
@@ -80,7 +80,7 @@ split across chunk
     log_file.write_text(log_data.strip() + "\nslack (VIOLATED) -0.1\n")
     
     # Intentionally use a tiny chunk size of 3 lines to force state carrying across chunks
-    results = list(ezmp.logs.parse_blocks(str(log_file), dummy_sta_extractor, chunk_size=3, initial_state={}))
+    results = list(ezmp.logs.parse_blocks(str(log_file), dummy_log_extractor, chunk_size=3, initial_state={}))
     
     assert len(results) == 3
     assert results[0] == {'start': 'reg_A', 'slack': -0.5}

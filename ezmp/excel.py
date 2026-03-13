@@ -43,7 +43,7 @@ def map_excel_chunks(
 ) -> Iterator[DataFrame]:
     """
     Reads an Excel file lazily in chunks, to prevent Out-Of-Memory (OOM) crashes
-    on massive SoC matrices (e.g., millions of cells).
+    on massive data matrices (e.g., millions of cells).
     
     Returns a Generator yielding processed DataFrame chunks.
     Dependencies: openpyxl

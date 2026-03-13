@@ -34,7 +34,7 @@ def parse_blocks(
     """
     Reads a massive log file in chunks and passes each chunk of lines to a custom
     `block_extractor` function. The extractor function can yield parsed items (like 
-    dictionaries or objects) representing multi-line blocks (e.g., STA paths, Error traces).
+    dictionaries or objects) representing multi-line blocks (e.g., Stack traces, Error blocks).
     
     This allows parsing multi-line blocks that span across raw lines natively, without 
     loading the entire file into memory. A state object can be passed and modified 
